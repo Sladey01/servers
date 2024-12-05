@@ -1,49 +1,33 @@
-import axios from 'axios';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// Snyk API integration
+const execAsync = promisify(exec);
+
 class SnykIntegration {
-  private apiKey: string;
+  private configPath: string;
 
   constructor() {
-    // Load Snyk API key from config
-    this.apiKey = this.loadSnykApiKey();
-  }
-
-  private loadSnykApiKey(): string {
-    const configPath = path.join(__dirname, 'claude-config.json');
-    try {
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      return config.snykApiKey || '';
-    } catch (error) {
-      console.error('Failed to load Snyk API key:', error);
-      return '';
-    }
+    this.configPath = path.join(__dirname, 'claude-config.json');
   }
 
   async testRepository(repoUrl: string): Promise<any> {
-    if (!this.apiKey) {
-      throw new Error('Snyk API key is not configured');
-    }
-
     try {
-      const response = await axios.post(
-        'https://snyk.io/api/v1/test/github',
-        { 
-          target: { 
-            remoteUrl: repoUrl 
-          } 
-        },
-        {
-          headers: {
-            'Authorization': `token ${this.apiKey}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+      // Clone the repository to a temporary directory
+      const tempDir = path.join(__dirname, 'temp', Date.now().toString());
+      await execAsync(`git clone ${repoUrl} ${tempDir}`);
 
-      return this.processSnykResults(response.data);
+      // Run Snyk CLI test
+      const { stdout, stderr } = await execAsync('snyk test --json', { cwd: tempDir });
+
+      // Parse and process results
+      const results = JSON.parse(stdout);
+      
+      // Clean up
+      await execAsync(`rm -rf ${tempDir}`);
+
+      return this.processSnykResults(results);
     } catch (error) {
       console.error('Snyk test failed:', error);
       throw error;
@@ -57,31 +41,33 @@ class SnykIntegration {
         severity: vuln.severity,
         title: vuln.title,
         description: vuln.description,
-        packageName: vuln.packageName
-      })) || []
+        packageName: vuln.packageName,
+        fixedIn: vuln.fixedIn
+      })) || [],
+      summary: {
+        uniqueCount: results.uniqueCount,
+        projectName: results.projectName,
+        displayTargetFile: results.displayTargetFile
+      }
     };
   }
 
-  // Configuration method to set Snyk API key
-  setSnykApiKey(apiKey: string): void {
-    const configPath = path.join(__dirname, 'claude-config.json');
-    let config: any = {};
-
+  async monitorRepository(repoUrl: string): Promise<any> {
     try {
-      // Read existing config if it exists
-      config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    } catch {
-      // Create new config if file doesn't exist
+      const tempDir = path.join(__dirname, 'temp', Date.now().toString());
+      await execAsync(`git clone ${repoUrl} ${tempDir}`);
+
+      // Run Snyk CLI monitor command
+      const { stdout } = await execAsync('snyk monitor --json', { cwd: tempDir });
+
+      // Clean up
+      await execAsync(`rm -rf ${tempDir}`);
+
+      return JSON.parse(stdout);
+    } catch (error) {
+      console.error('Snyk monitor failed:', error);
+      throw error;
     }
-
-    // Update Snyk API key
-    config.snykApiKey = apiKey;
-
-    // Write updated config
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-    
-    // Reload API key
-    this.apiKey = apiKey;
   }
 }
 
@@ -89,16 +75,17 @@ class SnykIntegration {
 async function main() {
   const snykIntegration = new SnykIntegration();
 
-  // Example: Test a repository
   try {
+    // Test a repository
     const results = await snykIntegration.testRepository('https://github.com/example/repo');
     console.log('Snyk Test Results:', results);
-  } catch (error) {
-    console.error('Repository testing failed:', error);
-  }
 
-  // To set API key (would typically be done via config or CLI)
-  // snykIntegration.setSnykApiKey('your-snyk-api-key-here');
+    // Monitor a repository
+    const monitorResults = await snykIntegration.monitorRepository('https://github.com/example/repo');
+    console.log('Snyk Monitor Results:', monitorResults);
+  } catch (error) {
+    console.error('Error:', error);
+  }
 }
 
 // Uncomment to run

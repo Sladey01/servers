@@ -1,0 +1,51 @@
+diff --git a/src/github/index.ts b/src/github/index.ts
+index 123..456 789
+--- a/src/github/index.ts
++++ b/src/github/index.ts
+@@ -1,3 +1,38 @@
++// Add Snyk schemas
++const SnykScanSchema = z.object({
++  owner: z.string(),
++  repo: z.string(),
++  branch: z.string().optional()
++});
++
++// Add scan_repository to tools list
++{
++  name: "scan_repository",
++  description: "Scan a GitHub repository for security vulnerabilities using Snyk",
++  inputSchema: zodToJsonSchema(SnykScanSchema)
++}
++
++// Add scan_repository handler
++case "scan_repository": {
++  const args = SnykScanSchema.parse(request.params.arguments);
++  const snykToken = process.env.SNYK_API_KEY;
++  
++  if (!snykToken) {
++    throw new Error('SNYK_API_KEY environment variable is required');
++  }
++
++  const response = await fetch(
++    'https://snyk.io/api/v1/test',
++    {
++      method: 'POST',
++      headers: {
++        'Authorization': `token ${snykToken}`,
++        'Content-Type': 'application/json'
++      },
++      body: JSON.stringify({
++        target: {
++          remoteUrl: `https://github.com/${args.owner}/${args.repo}`
++        }
++      })
++    }
++  );
++
++  if (!response.ok) {
++    throw new Error(`Snyk API error: ${response.statusText}`);
++  }
++
++  const result = SnykScanResultSchema.parse(await response.json());
++  return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
++}

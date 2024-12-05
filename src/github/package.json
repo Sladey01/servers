@@ -1,12 +1,15 @@
 {
-  "name": "github-server",
+  "name": "github-snyk-server",
   "version": "1.0.0",
-  "description": "GitHub Integration Server",
+  "description": "GitHub Integration Server with Snyk security scanning",
   "main": "index.ts",
+  "bin": {
+    "github-snyk-server": "./index.ts"
+  },
   "scripts": {
     "start": "ts-node index.ts",
-    "snyk:test": "snyk test",
-    "snyk:monitor": "snyk monitor"
+    "build": "tsc",
+    "prepublish": "npm run build"
   },
   "dependencies": {
     "@types/node": "^16.11.6",
@@ -17,5 +20,14 @@
   },
   "devDependencies": {
     "@types/axios": "^0.14.0"
-  }
+  },
+  "keywords": [
+    "github",
+    "snyk",
+    "security",
+    "claude",
+    "mcp"
+  ],
+  "author": "",
+  "license": "MIT"
 }

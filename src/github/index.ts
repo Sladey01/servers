@@ -1,94 +1,147 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import * as fs from 'fs';
+import axios from 'axios';
+import { promises as fs } from 'fs';
 import * as path from 'path';
 
-const execAsync = promisify(exec);
+interface SnykScanResult {
+  vulnerabilitiesFound: number;
+  issues: Array<{
+    severity: string;
+    title: string;
+    description: string;
+    packageName: string;
+    fixedIn?: string;
+  }>;
+  summary: {
+    uniqueCount: number;
+    projectName: string;
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+  };
+}
 
-class SnykIntegration {
-  private configPath: string;
+class GithubSnykServer {
+  private githubToken: string;
+  private snykToken: string;
 
   constructor() {
-    this.configPath = path.join(__dirname, 'claude-config.json');
+    this.githubToken = process.env.GITHUB_PERSONAL_ACCESS_TOKEN || '';
+    this.snykToken = process.env.SNYK_API_KEY || '';
   }
 
-  async testRepository(repoUrl: string): Promise<any> {
-    try {
-      // Clone the repository to a temporary directory
-      const tempDir = path.join(__dirname, 'temp', Date.now().toString());
-      await execAsync(`git clone ${repoUrl} ${tempDir}`);
-
-      // Run Snyk CLI test
-      const { stdout, stderr } = await execAsync('snyk test --json', { cwd: tempDir });
-
-      // Parse and process results
-      const results = JSON.parse(stdout);
-      
-      // Clean up
-      await execAsync(`rm -rf ${tempDir}`);
-
-      return this.processSnykResults(results);
-    } catch (error) {
-      console.error('Snyk test failed:', error);
-      throw error;
+  private async validateTokens() {
+    if (!this.githubToken || !this.snykToken) {
+      throw new Error('Missing required tokens. Please ensure GITHUB_PERSONAL_ACCESS_TOKEN and SNYK_API_KEY are set.');
     }
   }
 
-  private processSnykResults(results: any): object {
+  async analyzeRepository(owner: string, repo: string): Promise<SnykScanResult> {
+    await this.validateTokens();
+
+    // First get the repo details from GitHub
+    const repoUrl = `https://github.com/${owner}/${repo}`;
+    const repoDetails = await this.getGithubRepoDetails(owner, repo);
+
+    // Then scan with Snyk
+    const scanResults = await this.snykScan(repoUrl);
+
     return {
-      vulnerabilitiesFound: results.vulnerabilities?.length || 0,
-      issues: results.vulnerabilities?.map((vuln: any) => ({
-        severity: vuln.severity,
-        title: vuln.title,
-        description: vuln.description,
-        packageName: vuln.packageName,
-        fixedIn: vuln.fixedIn
-      })) || [],
+      ...scanResults,
       summary: {
-        uniqueCount: results.uniqueCount,
-        projectName: results.projectName,
-        displayTargetFile: results.displayTargetFile
+        ...scanResults.summary,
+        projectName: repoDetails.name
       }
     };
   }
 
-  async monitorRepository(repoUrl: string): Promise<any> {
+  private async getGithubRepoDetails(owner: string, repo: string) {
     try {
-      const tempDir = path.join(__dirname, 'temp', Date.now().toString());
-      await execAsync(`git clone ${repoUrl} ${tempDir}`);
-
-      // Run Snyk CLI monitor command
-      const { stdout } = await execAsync('snyk monitor --json', { cwd: tempDir });
-
-      // Clean up
-      await execAsync(`rm -rf ${tempDir}`);
-
-      return JSON.parse(stdout);
+      const response = await axios.get(`https://api.github.com/repos/${owner}/${repo}`, {
+        headers: {
+          'Authorization': `token ${this.githubToken}`,
+          'Accept': 'application/vnd.github.v3+json'
+        }
+      });
+      return response.data;
     } catch (error) {
-      console.error('Snyk monitor failed:', error);
-      throw error;
+      throw new Error(`Failed to get repository details: ${error.message}`);
     }
   }
-}
 
-// Example usage
-async function main() {
-  const snykIntegration = new SnykIntegration();
+  private async snykScan(repoUrl: string): Promise<SnykScanResult> {
+    try {
+      const response = await axios.post(
+        'https://snyk.io/api/v1/test/github',
+        {
+          target: {
+            remoteUrl: repoUrl
+          }
+        },
+        {
+          headers: {
+            'Authorization': `token ${this.snykToken}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
 
-  try {
-    // Test a repository
-    const results = await snykIntegration.testRepository('https://github.com/example/repo');
-    console.log('Snyk Test Results:', results);
+      const vulns = response.data.vulnerabilities || [];
+      
+      return {
+        vulnerabilitiesFound: vulns.length,
+        issues: vulns.map((vuln: any) => ({
+          severity: vuln.severity,
+          title: vuln.title,
+          description: vuln.description,
+          packageName: vuln.package,
+          fixedIn: vuln.fixedIn
+        })),
+        summary: {
+          uniqueCount: vulns.length,
+          projectName: response.data.projectName || '',
+          critical: vulns.filter((v: any) => v.severity === 'critical').length,
+          high: vulns.filter((v: any) => v.severity === 'high').length,
+          medium: vulns.filter((v: any) => v.severity === 'medium').length,
+          low: vulns.filter((v: any) => v.severity === 'low').length
+        }
+      };
+    } catch (error) {
+      throw new Error(`Snyk scan failed: ${error.message}`);
+    }
+  }
 
-    // Monitor a repository
-    const monitorResults = await snykIntegration.monitorRepository('https://github.com/example/repo');
-    console.log('Snyk Monitor Results:', monitorResults);
-  } catch (error) {
-    console.error('Error:', error);
+  // Example of how to use this in a Model Context Protocol server
+  async handleCommand(command: string): Promise<any> {
+    const repoRegex = /analyze|scan|check.*?([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)/i;
+    const match = command.match(repoRegex);
+    
+    if (match) {
+      const [owner, repo] = match[1].split('/');
+      return await this.analyzeRepository(owner, repo);
+    }
+    
+    throw new Error('Invalid command. Please specify a repository to analyze (e.g., "analyze owner/repo")');
   }
 }
 
-// Uncomment to run
-// main();
+// For CLI usage
+if (require.main === module) {
+  const server = new GithubSnykServer();
+  const [,, owner, repo] = process.argv;
 
-export default SnykIntegration;
+  if (owner && repo) {
+    server.analyzeRepository(owner, repo)
+      .then(results => console.log(JSON.stringify(results, null, 2)))
+      .catch(error => {
+        console.error('Error:', error.message);
+        process.exit(1);
+      });
+  } else {
+    console.error('Please provide owner and repo arguments');
+    console.error('Usage: ts-node index.ts owner repo');
+    process.exit(1);
+  }
+}
+
+export default GithubSnykServer;

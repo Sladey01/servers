@@ -1,3 +1,3 @@
 # Updated Configuration
 
-This configuration now includes Snyk server integration in the MCP servers configuration.
+This configuration now includes Snyk server integration with a reference to the Sladey01/servers repository.

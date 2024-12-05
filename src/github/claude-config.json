@@ -27,7 +27,8 @@
          "@modelcontextprotocol/server-snyk"
        ],
        "env": {
-         "SNYK_API_KEY": "apitoken"
+         "SNYK_API_KEY": "apitoken",
+         "GITHUB_REPOSITORY": "Sladey01/servers"
        }
      }
    }

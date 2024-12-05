@@ -1,31 +1,21 @@
 {
-  "name": "@modelcontextprotocol/server-github",
-  "version": "0.6.2",
-  "description": "MCP server for using the GitHub API",
-  "license": "MIT",
-  "author": "Anthropic, PBC (https://anthropic.com)",
-  "homepage": "https://modelcontextprotocol.io",
-  "bugs": "https://github.com/modelcontextprotocol/servers/issues",
-  "type": "module",
-  "bin": {
-    "mcp-server-github": "dist/index.js"
-  },
-  "files": [
-    "dist"
-  ],
+  "name": "github-server",
+  "version": "1.0.0",
+  "description": "GitHub Integration Server",
+  "main": "index.ts",
   "scripts": {
-    "build": "tsc && shx chmod +x dist/*.js",
-    "prepare": "npm run build",
-    "watch": "tsc --watch"
+    "start": "ts-node index.ts",
+    "snyk:test": "snyk test",
+    "snyk:monitor": "snyk monitor"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.0.1",
-    "@types/node-fetch": "^2.6.12",
-    "node-fetch": "^3.3.2",
-    "zod-to-json-schema": "^3.23.5"
+    "@types/node": "^16.11.6",
+    "ts-node": "^10.4.0",
+    "typescript": "^4.4.4",
+    "snyk": "^1.1025.0",
+    "axios": "^0.24.0"
   },
   "devDependencies": {
-    "shx": "^0.3.4",
-    "typescript": "^5.6.2"
+    "@types/axios": "^0.14.0"
   }
 }

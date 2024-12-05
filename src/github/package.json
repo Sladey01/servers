@@ -12,6 +12,7 @@
     "prepublish": "npm run build"
   },
   "dependencies": {
+    "zod-to-json-schema": "^3.22.3",
     "@types/node": "^16.11.6",
     "ts-node": "^10.4.0",
     "typescript": "^4.4.4",

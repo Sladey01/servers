@@ -1,0 +1,59 @@
+diff --git a/src/github/index.ts b/src/github/index.ts
+--- a/src/github/index.ts
++++ b/src/github/index.ts
+@@ -1,6 +1,41 @@
+ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+
++const SnykScanSchema = z.object({
++  owner: z.string(),
++  repo: z.string(),
++  branch: z.string().optional()
++});
++
+@@ -20,6 +55,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
+       {
+         name: "create_repository",
+         description: "Create a new GitHub repository in your account",
++      },
++      {
++        name: "scan_repository",
++        description: "Scan a GitHub repository for security vulnerabilities using Snyk",
++        inputSchema: zodToJsonSchema(SnykScanSchema)
+       }
+     ]
+   };
+@@ -30,6 +69,35 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
+
+   switch (request.params.name) {
+
++    case "scan_repository": {
++      const args = SnykScanSchema.parse(request.params.arguments);
++      const snykToken = process.env.SNYK_API_KEY;
++
++      if (!snykToken) {
++        throw new Error('SNYK_API_KEY environment variable is required');
++      }
++
++      const response = await fetch(
++        'https://snyk.io/api/v1/test',
++        {
++          method: 'POST',
++          headers: {
++            'Authorization': `token ${snykToken}`,
++            'Content-Type': 'application/json'
++          },
++          body: JSON.stringify({
++            target: {
++              remoteUrl: `https://github.com/${args.owner}/${args.repo}`
++            }
++          })
++        }
++      );
++
++      if (!response.ok) {
++        throw new Error(`Snyk API error: ${response.statusText}`);
++      }
++
++      return { content: [{ type: "text", text: JSON.stringify(await response.json(), null, 2) }] };
++    }
